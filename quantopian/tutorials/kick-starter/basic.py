@@ -3,7 +3,7 @@
 '''
 Two important functions
     initialize(): Called when the program is started (like 'main()' in C++). Only be called once.
-    handle_data(): Called once per minute during simulation or living-trading in events (refers to as 'bars')
+    handle_data(): Called once #per minute# during simulation or living-trading in events (refers to as 'bars')
 '''
 def initialize(context):
     # Reference to AAPL
