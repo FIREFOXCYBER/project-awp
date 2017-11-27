@@ -23,7 +23,7 @@ def handle_data(context, data):
         - Is called once at the end of each minute and requires 'context' and 'data' as input
         - 'context' is same as in 'initialize()'
     - before_trading_start():
-        - Is called once per day before the market opens and requires `context` and `data` as input
+        - Is called #once per day# before the market opens and requires `context` and `data` as input
         - Common usage: selecting securities to order.
 '''
 def initialize(context):
