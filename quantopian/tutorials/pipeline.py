@@ -357,3 +357,125 @@ def make_pipeline():
 result = run_pipeline(make_pipeline(), '2015-05-05', '2015-05-05')
 print 'Number of securities that passed the filter: %d' % len(result)
 result.head()
+
+'''
+  9. Datasets
+'''
+
+
+# When building a pipeline, we need a way to identify the inputs to our computations. 
+# The input to a pipeline computation is specified using DataSets and BoundColumns.
+
+''' Datasets and BoundColumns '''
+# DataSets: are simply collections of objects that tell the Pipeline API where and how to find the inputs to computations. 
+#   An example of a DataSet that we have already seen is USEquityPricing.
+
+# A BoundColumn: is a column of data that is concretely bound to a DataSet. 
+# Instances of BoundColumns are dynamically created upon access to attributes of DataSets. 
+# Inputs to pipeline computations must be of type BoundColumn. 
+#   An example of a BoundColumn that we have already seen is USEquityPricing.close.
+
+''' dtypes '''
+# The dtype of a BoundColumn tells a computation what the type of the data will be 
+# when the pipeline is run. 
+#   For example, USEquityPricing has a float dtype so a factor may perform 
+#   arithmetic operations on USEquityPricing.close (e.g. compute the 5-day mean). 
+
+''' Pricing Data '''
+# USEquityPricing.open
+# USEquityPricing.high
+# USEquityPricing.low
+# USEquityPricing.close
+# USEquityPricing.volume
+
+''' Fundamental Data '''
+# From 'morningstar'
+
+''' Partner Data '''
+# quantopian.pipeline.data.estimize (Estimize)
+# quantopian.pipeline.data.eventVestor (EventVestor)
+# quantopian.pipeline.data.psychsignal (PsychSignal)
+# quantopian.pipeline.data.quandl (Quandl)
+# quantopian.pipeline.data.sentdex (Sentdex)
+# https://www.quantopian.com/help/fundamentals
+
+'''
+  10. Custom Factors
+'''
+# inputs are M x N numpy arrays, where M is the window_length and N is the number of securities (usually around ~8000 unless a mask is provided). *inputs are trailing data windows. Note that there will be one M x N array for each BoundColumn provided in the factor's inputs list. The data type of each array will be the dtype of the corresponding BoundColumn.
+# out is an empty array of length N. out will be the output of our custom factor each day. The job of compute is to write output values into out.
+# asset_ids will be an integer array of length N containing security ids corresponding to the columns in our *inputs arrays.
+# today will be a pandas Timestamp representing the day for which compute is being called.
+def compute(self, today, asset_ids, out, *inputs):
+    ...
+
+from quantopian.pipeline import CustomFactor, Pipeline
+import numpy
+class StdDev(CustomFactor):
+    def compute(self, today, asset_ids, out, values):
+        # Calculates the column-wise standard deviation, ignoring NaNs
+        out[:] = numpy.nanstd(values, axis=0)
+def make_pipeline():
+    std_dev = StdDev(
+        inputs=[USEquityPricing.close],
+        window_length=5
+    )
+
+    return Pipeline(
+        columns={
+            'std_dev': std_dev
+        }
+    )
+result = run_pipeline(make_pipeline(), '2015-05-05', '2015-05-05')
+result.head()    
+
+''' Default Inputs '''
+class TenDayMeanDifference(CustomFactor):
+    # Default inputs.
+    inputs = [USEquityPricing.close, USEquityPricing.open]
+    window_length = 10
+    def compute(self, today, asset_ids, out, close, open):
+        # Calculates the column-wise mean difference, ignoring NaNs
+        out[:] = numpy.nanmean(close - open, axis=0)
+# Computes the 10-day mean difference between the daily open and close prices.
+close_open_diff = TenDayMeanDifference()
+
+# Computes the 10-day mean difference between the daily high and low prices.
+high_low_diff = TenDayMeanDifference(inputs=[USEquityPricing.high, USEquityPricing.low])
+
+''' Further Example '''
+class Momentum(CustomFactor):
+    # Default inputs
+    inputs = [USEquityPricing.close]
+
+    # Compute momentum
+    def compute(self, today, assets, out, close):
+        out[:] = close[-1] / close[0]
+
+ten_day_momentum = Momentum(window_length=10)
+twenty_day_momentum = Momentum(window_length=20)
+
+positive_momentum = ((ten_day_momentum > 1) & (twenty_day_momentum > 1))
+
+def make_pipeline():
+
+    ten_day_momentum = Momentum(window_length=10)
+    twenty_day_momentum = Momentum(window_length=20)
+
+    positive_momentum = ((ten_day_momentum > 1) & (twenty_day_momentum > 1))
+
+    std_dev = StdDev(
+        inputs=[USEquityPricing.close],
+        window_length=5
+    )
+
+    return Pipeline(
+        columns={
+            'std_dev': std_dev,
+            'ten_day_momentum': ten_day_momentum,
+            'twenty_day_momentum': twenty_day_momentum
+        },
+        screen=positive_momentum
+    )
+result = run_pipeline(make_pipeline(), '2015-05-05', '2015-05-05')
+result.head()

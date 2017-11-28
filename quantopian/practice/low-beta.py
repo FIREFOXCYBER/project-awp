@@ -9,7 +9,7 @@ from quantopian.pipeline.factors import AverageDollarVolume
 from quantopian.pipeline.factors.morningstar import MarketCap
 from quantopian.pipeline.classifiers.morningstar import Sector
 
-from quantopian.pipeline.data.sentdex import sentiment
+# from quantopian.pipeline.data.sentdex import sentiment
 from quantopian.pipeline.data.morningstar import operation_ratios
 from quantopian.pipeline.filters.morningstar import Q1500US
 
@@ -33,18 +33,18 @@ BASE_UNIVERSE_RECALCULATE_FREQUENCY = 'month_start'  # {week,quarter,year}_start
 def initialize(context):
     testing_factor1 = operation_ratios.operation_margin.latest
     testing_factor2 = operation_ratios.revenue_growth.latest
-    testing_factor3 = sentiment.sentiment_signal.latest
+    #testing_factor3 = sentiment.sentiment_signal.latest
     
     universe = (Q1500US() &
                testing_factor1.notnull() &
-               testing_factor2.notnull() &
-               testing_factor3.notnull())
+               testing_factor2.notnull())# &
+               #testing_factor3.notnull())
     
     testing_factor1 = testing_factor1.rank(mask=universe, method='average')
     testing_factor2 = testing_factor2.rank(mask=universe, method='average')
-    testing_factor3 = testing_factor3.rank(mask=universe, method='average')
+    # testing_factor3 = testing_factor3.rank(mask=universe, method='average')
     
-    combined_alpha = testing_factor1 + testing_factor2 + testing_factor3
+    combined_alpha = testing_factor1 + testing_factor2 #+ testing_factor3
 
     # Schedule Tasks
     # --------------
