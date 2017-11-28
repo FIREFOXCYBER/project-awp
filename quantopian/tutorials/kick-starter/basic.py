@@ -288,3 +288,6 @@ def record_vars(context, data):
 
     # Record our variables.
     record(leverage=context.account.leverage, long_count=longs, short_count=shorts)
+
+
+# https://www.quantopian.com/posts/a-simple-momentum-rotation-system-for-stocks
