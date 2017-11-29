@@ -34,7 +34,8 @@ Selection considers
 - Four momentum factors over 20, 60, 125 and 252 days
 - Efficiency threshold = 0.031 based on 252 day return vs sum of daily High minus Low
 
-The original post successfully outlines a method outline of use to the community. There was no attempt to make this a production-ready algorithm, so some problems and uncertain features exist. A few of these impacted my ability to understand what was happening so I tried to resolve them (perhaps only to myself):
+The original post successfully outlines a method outline of use to the community. There was no attempt to make this a production-ready algorithm, so some problems and uncertain features exist. 
+A few of these impacted my ability to understand what was happening so I tried to resolve them (perhaps only to myself):
 1) although this is nominally a long-only algo the daily rebalance can result in shorting
 2) liquidity problem even when starting with only $100k. Leverage is roughly 35% to 110%. The number of assets is roughtly 4 to 15 vs defined top-10.
 3) the algorithm lacks any logic to exit stocks during prolonged drawdown periods. Real investors would have exited a few times from 2003 through 2015.
@@ -118,27 +119,38 @@ import pandas as pd
 import talib
 from collections import defaultdict
       
+# Momentum for 20 days
 class momentum_factor_1(CustomFactor):    
-   inputs = [USEquityPricing.close]   
-   window_length = 20  
-     
-   def compute(self, today, assets, out, close):  
-     out[:] = close[-1]/close[0]
+  # Set default values
+  inputs = [USEquityPricing.close]   
+  window_length = 20  
    
+  def compute(self, today, assets, out, close):  
+   out[:] = close[-1]/close[0]
+   
+
+
+# Momentum for 60 days
 class momentum_factor_2(CustomFactor):    
-   inputs = [USEquityPricing.close]   
-   window_length = 60  
-     
-   def compute(self, today, assets, out, close):
-     out[:] = close[-1]/close[0]
+  inputs = [USEquityPricing.close]   
+  window_length = 60  
    
+  def compute(self, today, assets, out, close):
+   out[:] = close[-1]/close[0]
+   
+
+
+# Momentum for 125 days
 class momentum_factor_3(CustomFactor):    
-   inputs = [USEquityPricing.close]   
-   window_length = 125  
-     
-   def compute(self, today, assets, out, close):
-     out[:] = close[-1]/close[0]
+  inputs = [USEquityPricing.close]   
+  window_length = 125  
    
+  def compute(self, today, assets, out, close):
+   out[:] = close[-1]/close[0]
+   
+
+
+# Momentum for 252 days
 class momentum_factor_4(CustomFactor):    
    inputs = [USEquityPricing.close]   
    window_length = 252  
@@ -146,6 +158,9 @@ class momentum_factor_4(CustomFactor):
    def compute(self, today, assets, out, close):
      out[:] = close[-1]/close[0]
    
+
+
+# lastest market_cap   
 class market_cap(CustomFactor):    
    inputs = [USEquityPricing.close, morningstar.valuation.shares_outstanding]   
    window_length = 1  
@@ -153,6 +168,7 @@ class market_cap(CustomFactor):
    def compute(self, today, assets, out, close, shares):      
      out[:] = close[-1] * shares[-1]        
         
+# Efficieny Ratio
 class efficiency_ratio(CustomFactor):    
    inputs = [USEquityPricing.close, USEquityPricing.high, USEquityPricing.low]   
    window_length = 252
@@ -167,11 +183,14 @@ class efficiency_ratio(CustomFactor):
        out[:] = e_r
         
 def initialize(context):  
+    # Set Commision and rebalances
     set_commission(commission.PerShare(cost=0.005, min_trade_cost=1.00))
     schedule_function(func=monthly_rebalance, date_rule=date_rules.month_start(days_offset=22), time_rule=time_rules.market_open(), half_days=True)  
     schedule_function(func=daily_rebalance, date_rule=date_rules.every_day(), time_rule=time_rules.market_close(hours=1))
     
+    # Set what's not to order
     set_do_not_order_list(security_lists.leveraged_etf_list)
+
     context.canary = sid(8554)
     context.acc_leverage = 1.00 
     context.min_holdings = 10
@@ -189,10 +208,12 @@ def initialize(context):
       sid(23921), #TLT
       sid(25485)  #AGG
     ]
-       
+
+    # Set up pipeline   
     pipe = Pipeline()  
     attach_pipeline(pipe, 'ranked_stocks')  
      
+    # Add columns to pipeline
     factor1 = momentum_factor_1()  
     pipe.add(factor1, 'factor_1')   
     factor2 = momentum_factor_2()  
@@ -206,6 +227,7 @@ def initialize(context):
     factor6 = AverageDollarVolume(window_length=20)
     pipe.add(factor6, 'factor_6')
         
+    # Set pipeline screen
     mkt_screen = market_cap()    
     stocks = mkt_screen.top(3000) 
     factor_5_filter = factor5 > 0.0
@@ -213,7 +235,7 @@ def initialize(context):
     total_filter = (stocks & factor_5_filter & factor_6_filter)
     pipe.set_screen(total_filter)  
      
-        
+    # Add columns to pipe   
     factor1_rank = factor1.rank(mask=total_filter, ascending=False)  
     pipe.add(factor1_rank, 'f1_rank')  
     factor2_rank = factor2.rank(mask=total_filter, ascending=False)  
@@ -227,23 +249,27 @@ def initialize(context):
     pipe.add(combo_raw, 'combo_raw')   
     pipe.add(combo_raw.rank(mask=total_filter), 'combo_rank')       
          
+
+
+# Set Up before trading         
 def before_trading_start(context, data):  
+    # Get pipeline
     context.output = pipeline_output('ranked_stocks')  
-    
+     
     n_30 = int(context.portfolio.portfolio_value/30e3)
     context.holdings = max(context.min_holdings, n_30)
    
     # Only consider stocks with a efficiency rating > threshold
     ranked_stocks = context.output[context.output.factor_5 > 0.0]
 
-    
     # We are interested in the top 10 stocks ranked by combo_rank
     context.stock_factors = ranked_stocks.sort(['combo_rank'], ascending=True).iloc[:context.holdings]  
      
+    # Stock list index
     context.stock_list = context.stock_factors.index   
 
 #
-# Entry/exit logic using slow/fast SMA
+# Entry/exit logic using slow/fast SMA (simple moving average)
 #
     Canary = data.history(context.canary, 'price', 80, '1d')
     Canary_fast = Canary[-15:].mean()
@@ -252,12 +278,14 @@ def before_trading_start(context, data):
     context.buy_stocks = False
     if Canary_fast > Canary_slow: context.buy_stocks = True
 
+
+
 def daily_rebalance(context, data):
 
     for stock in context.portfolio.positions:
         if data.can_trade(stock):
             if stock not in context.this_months_list:
-                order_target(stock, 0)
+                order_target(stock, 0) # Clear holdings
                 
     for stock in context.portfolio.positions:
         if data.can_trade(stock):
