@@ -7,6 +7,7 @@ from quantopian.pipeline.data.builtin import USEquityPricing
 from quantopian.pipeline.factors import AverageDollarVolume
 from quantopian.pipeline.filters import Q1500US 
 from quantopian.pipeline.factors import CustomFactor
+from quantopian.pipeline.data import morningstar 
 
 import pandas as pd
 import numpy as np
@@ -41,7 +42,69 @@ class AvgDailyDollarVolumeTraded(CustomFactor):
     def compute(self, today, assets, out, close_price, volume):
         out[:] = np.mean(close_price * volume, axis=0)
         
+# Momentum for 20 days
+class momentum_factor_1(CustomFactor):    
+  # Set default values
+  inputs = [USEquityPricing.close]   
+  window_length = 20  
+   
+  def compute(self, today, assets, out, close):  
+   out[:] = close[-1]/close[0]
+   
+
+
+# Momentum for 60 days
+class momentum_factor_2(CustomFactor):    
+  inputs = [USEquityPricing.close]   
+  window_length = 60  
+   
+  def compute(self, today, assets, out, close):
+   out[:] = close[-1]/close[0]
+   
+
+
+# Momentum for 125 days
+class momentum_factor_3(CustomFactor):    
+  inputs = [USEquityPricing.close]   
+  window_length = 125  
+   
+  def compute(self, today, assets, out, close):
+   out[:] = close[-1]/close[0]
+   
+
+
+# Momentum for 252 days
+class momentum_factor_4(CustomFactor):    
+   inputs = [USEquityPricing.close]   
+   window_length = 252  
+     
+   def compute(self, today, assets, out, close):
+     out[:] = close[-1]/close[0]
+   
+
+
+# lastest market_cap   
+class market_cap(CustomFactor):    
+   inputs = [USEquityPricing.close, morningstar.valuation.shares_outstanding]   
+   window_length = 1  
+     
+   def compute(self, today, assets, out, close, shares):      
+     out[:] = close[-1] * shares[-1]        
         
+# Efficieny Ratio
+class efficiency_ratio(CustomFactor):    
+   inputs = [USEquityPricing.close, USEquityPricing.high, USEquityPricing.low]   
+   window_length = 252
+     
+   def compute(self, today, assets, out, close, high, low):
+       lb = self.window_length
+       e_r = np.zeros(len(assets), dtype=np.float64)
+       a=np.array(([high[1:(lb):1]-low[1:(lb):1],abs(high[1:(lb):1]-close[0:(lb-1):1]),abs(low[1:(lb):1]-close[0:(lb-1):1])]))      
+       b=a.T.max(axis=1)
+       c=b.sum(axis=1)
+       e_r=abs(close[-1]-close[0]) /c  
+       out[:] = e_r
+
 def initialize(context):
     """
     Called once at the start of the algorithm.
@@ -52,14 +115,15 @@ def initialize(context):
     context.shorts = None
     context.longs = None
 
-    set_commission(commission.PerShare(cost=0.005, min_trade_cost=1))
-    set_slippage(slippage.FixedSlippage(spread=0))
-    set_benchmark(sid(8554))
+    set_commission(commission.PerShare(cost=0.0075, min_trade_cost=1))
+    set_slippage(slippage.VolumeShareSlippage(volume_limit=0.025, price_impact=0.1))
+    # set_benchmark(sid(8554))
     
     # Rebalance every day, 1 hour after market open.
-    schedule_function(my_rebalance, date_rules.month_start())
+    schedule_function(my_rebalance, \
+        date_rules.month_start())#days_offset=22), time_rules.market_open(), half_days=True)
 
-    schedule_function(remove_to_be_delisted, date_rules.every_day(), time_rules.market_open())
+    schedule_function(remove_to_be_delisted, date_rules.every_day(), time_rules.market_open(hours=1))
     schedule_function(cancel_open_orders, date_rules.every_day(), time_rules.market_close()) 
 
     # Record tracking variables at the end of each day.
@@ -82,11 +146,32 @@ def make_pipeline():
     pipe = Pipeline()
     pipe = attach_pipeline(pipe, name='beta_metrics')
     pipe.add(Beta(), "beta")
+
+    # Add other filters
+    factor1 = momentum_factor_1()
+    pipe.add(momentum_factor_1(), 'factor_1')
+    factor2 = momentum_factor_2()
+    pipe.add(momentum_factor_2(), 'factor_2')
+    factor3 = momentum_factor_3()
+    pipe.add(momentum_factor_3(), 'factor_3')
+    factor4 = momentum_factor_4()
+    pipe.add(momentum_factor_4(), 'factor_4')
+    factor5 = efficiency_ratio()
+    pipe.add(factor5, 'factor_5')
+    factor6 = AverageDollarVolume(window_length=20)
+    pipe.add(factor6, 'factor_6')
     
     dollar_volume = AvgDailyDollarVolumeTraded()
     
+    # Set pipeline screen
+    mkt_screen = market_cap()    
+    stocks = mkt_screen.top(3000) 
+    factor_5_filter = factor5 > 0.0
+    factor_6_filter = factor6 > 0.5e6 # only consider stocks trading >$500k per day
     # Screen out penny stocks and low liquidity securities.
-    pipe.set_screen(dollar_volume > 10**7)
+    factor_7_filter = dollar_volume > 10**7
+    total_filter = (stocks & factor_5_filter & factor_6_filter & factor_7_filter)
+    pipe.set_screen(total_filter)  
 
     return pipe
  
@@ -111,7 +196,9 @@ def before_trading_start(context, data):
     
     # The pipe character "|" is the pandas union operator
     update_universe(context.longs.index | context.shorts.index)
-     
+    print context.longs.index[:3]
+    print context.shorts.index[:3]
+    # context.assets = context.longs.index | context.shorts.index
 def my_assign_weights(context, data):
     """
     Assign weights to securities that we want to order.
@@ -127,14 +214,15 @@ def my_rebalance(context,data):
         if get_open_orders(security):
             continue
         if security in data:
-            order_target_percent(security, -0.49 / len(context.shorts))
+            order_target_percent(security, -0.5 / len(context.shorts))
             
     for security in context.longs.index:
         if get_open_orders(security):
             continue
         if security in data:
-            order_target_percent(security, 0.49 / len(context.longs))
+            order_target_percent(security, 0.5 / len(context.longs))
             
+    # Condition to sell stocks
     for security in context.portfolio.positions:
         if get_open_orders(security):
             continue
