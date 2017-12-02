@@ -6,9 +6,13 @@ from quantopian.algorithm import attach_pipeline, pipeline_output
 from quantopian.pipeline import Pipeline
 from quantopian.pipeline.data.builtin import USEquityPricing
 from quantopian.pipeline.factors import AverageDollarVolume
+from quantopian.pipeline.factors import RollingLinearRegressionOfReturns
+from quantopian.pipeline.factors import AnnualizedVolatility
+from quantopian.pipeline.factors import SimpleMovingAverage
 from quantopian.pipeline.filters import Q1500US 
 from quantopian.pipeline.factors import CustomFactor
 from quantopian.pipeline.data import morningstar 
+import talib as ta
 # Python dependencies
 import pandas as pd
 import numpy as np
@@ -158,14 +162,24 @@ def make_pipeline():
     pipe.add(market_cap1, 'market_cap1')
     mom5 = momentum_5()
     pipe.add(mom5, 'mom_5')
+    annual_vol = AnnualizedVolatility()
+    pipe.add(annual_vol, 'annual_vol')
+    sma3 = SimpleMovingAverage(inputs=[USEquityPricing.close], window_length=3)
+    pipe.add(sma3, 'sma3')
+    sma5 = SimpleMovingAverage(inputs=[USEquityPricing.close], window_length=5)
+    pipe.add(sma5, 'sma5')
+    sma20 = SimpleMovingAverage(inputs=[USEquityPricing.close], window_length=20)
+    pipe.add(sma20, 'sma20')
     
     # Set pipeline screen
     factor1_filter = factor1 > 10**7
     market_cap_top = market_cap1 < 10*10**9
     market_cap_bottom = market_cap1 > 2*10**9
+    # annual_vol_filter = annual_vol < 0.2
+    # sma_filter = (sma3 > sma5) & (sma5 > sma20)
     # mom5_filter = mom5 > 1
 
-    total_filter = (factor1_filter & market_cap_bottom & market_cap_top) #and mom5_filter
+    total_filter = (factor1_filter & market_cap_bottom & market_cap_top)# & annual_vol_filter) #and mom5_filter
 
     pipe.set_screen(total_filter)  
 
@@ -196,32 +210,53 @@ def before_trading_start(context, data):
     print context.longs.index[:3]
     print context.shorts.index[:3]
 
-
+def recover_period(data):
+    close = data.history(sid(8554),'close', 120, '1d')
+    sma5 = ta.SMA(close, 5)[-1]
+    # print sma5
+    sma20 = ta.SMA(close, 20)[-1]
+    sma60 = ta.SMA(close, 60)[-1]
+    # print sma5
+    # print sma20
+    # print sma60
+    short_ratio = sma5/sma20 if sma5/sma20 else 1
+    mid_ratio = sma20/sma60 if sma20/sma60 else 1
+    # long_ratio = sma5/sma60 if sma5/sma60 else 1
+    if (short_ratio > 1) and (mid_ratio > 1):
+        return True
+    else:
+        return False
 
 def daily_rebalance(context,data):
     """
     Execute orders according to our schedule_function() timing. 
     """
     size = min(len(context.longs), len(context.shorts))
+    # Condition to long
     i = 0
     for security in context.longs.index:
-        if data.can_trade(security) and i < size and context.account.leverage <= 1:
+        if data.can_trade(security) and i < size and context.account.leverage <= 1.5:
             order_target_percent(security, 0.5 / size) 
             i += 1
+    # Condition to short
     j = 0
     for security in context.shorts.index:
-        if data.can_trade(security) and j < size and context.account.leverage <= 1:
+        if data.can_trade(security) and j < size and context.account.leverage <= 1.5:
             order_target_percent(security, -0.5 / size)
             j += 1
 
-    for security in context.portfolio.positions:
-        hist = data.history(security, 'close', 5, '1d')
-        mom5 = hist[-1]/hist[0]
-        if (mom5 < 1 and security.amount > 0):
-          order_target_percent(security, 0)
-        elif (mom5 > 1 and security.amount < 0):
-          order_target_percent(security, 0)
-
+    # Condition to sell
+    # Recover Period
+    if not recover_period(data):
+        for security in context.portfolio.positions:
+            hist = data.history(security, 'close', 5, '1d')
+            mom5 = hist[-1]/hist[0]
+            hold = context.portfolio.positions[security]
+            if (mom5 < 1 and hold.amount > 0):
+              order_target_percent(security, 0)
+            elif (mom5 > 1 and hold.amount < 0):
+              order_target_percent(security, 0)
+    
     print "Called daily rebalance"
 
 
@@ -238,6 +273,7 @@ def monthly_rebalance(context,data):
     Execute orders according to our schedule_function() timing. 
     """
     print "Called monthly rebalance"
+    
 
 
 
@@ -245,9 +281,16 @@ def record_vars(context, data):
     """
     Plot variables at the end of each day. Use schedule_function()
     """
+    # beta1 = 0
+    # for security in context.portfolio.positions:
+    #     tmp = (RollingLinearRegressionOfReturns(security, returns_length=60,
+    # regression_length=60,))
+    #     beta1 += tmp.beta
+
     record(lever=context.account.leverage,
-           num_pos=len(context.portfolio.positions),
-           beta=Beta())
+           num_pos=len(context.portfolio.positions))#,
+          # cash=context.portfolio.cash,
+          # pnl=context.portfolio.pnl)
  
 
 
@@ -278,10 +321,10 @@ def initialize(context):
     # schedule_function(daily_rebalance, \
     #     date_rules.every_day(), time_rules.market_close()) 
     schedule_function(daily_rebalance, \
-        date_rules.month_start(), time_rules.market_open())
+        date_rules.week_start(), time_rules.market_open())
 
-    schedule_function(weekly_rebalance, \
-        date_rules.week_start(), time_rules.market_open(hours=1))
+    # schedule_function(weekly_rebalance, \
+    #     date_rules.week_start(), time_rules.market_open(hours=1))
 
     schedule_function(monthly_rebalance, \
         date_rules.month_start(days_offset=0), time_rules.market_open(), half_days=True)
