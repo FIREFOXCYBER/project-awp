@@ -46,8 +46,6 @@ idea:
 Portfolio beta: Weighted Average Beta of each equity (weight is average total value during a period)
 
 
-https://www.quantopian.com/posts/calculating-beta
+
 https://www.quantopian.com/posts/pipeline-calculating-beta
 https://www.quantopian.com/posts/beta-to-spy
-https://www.quantopian.com/posts/beta-calculation-method
-https://www.quantopian.com/posts/beta-quantopian-calculation
